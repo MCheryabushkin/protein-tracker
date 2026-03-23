@@ -11,3 +11,11 @@ generator client {
 datasource db {
   provider = "sqlite"
 }
+
+model FoodEntry {
+  id           Int      @id @default(autoincrement())
+  date         String
+  name         String
+  proteinGrams Int
+  createdAt    DateTime @default(now())
+}
