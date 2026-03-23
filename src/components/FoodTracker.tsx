@@ -9,7 +9,13 @@ import {
   getFoodEntriesForDate,
 } from "@/app/actions";
 
-type FoodEntry = Awaited<ReturnType<typeof getFoodEntriesForDate>>[number];
+type FoodEntry = {
+  id: number;
+  date: string;
+  name: string;
+  proteinGrams: number;
+  createdAt: Date;
+};
 
 function getTodayAsISODate() {
   return new Date().toISOString().slice(0, 10);
@@ -32,13 +38,14 @@ export default function FoodTracker() {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await getFoodEntriesForDate(date);
+        const result = await getFoodEntriesForDate(date);
         if (!isCancelled) {
-          setEntries(data);
-        }
-      } catch (e) {
-        if (!isCancelled) {
-          setError("Не удалось загрузить данные за выбранный день");
+          if (result.ok) {
+            setEntries(result.data);
+          } else {
+            setEntries([]);
+            setError(result.error);
+          }
         }
       } finally {
         if (!isCancelled) {
@@ -72,13 +79,21 @@ export default function FoodTracker() {
 
     setIsSubmitting(true);
     try {
-      await addFoodEntry(date, name, proteinNumber);
+      const addResult = await addFoodEntry(date, name, proteinNumber);
+      if (!addResult.ok) {
+        setError(addResult.error);
+        return;
+      }
+
       const updated = await getFoodEntriesForDate(date);
-      setEntries(updated);
+      if (!updated.ok) {
+        setError(updated.error);
+        return;
+      }
+
+      setEntries(updated.data);
       setName("");
       setProtein("");
-    } catch (e) {
-      setError("Не удалось сохранить запись");
     } finally {
       setIsSubmitting(false);
     }
@@ -89,13 +104,18 @@ export default function FoodTracker() {
     if (!ok) return;
 
     setError(null);
-    try {
-      await deleteFoodEntry(id);
-      const updated = await getFoodEntriesForDate(date);
-      setEntries(updated);
-    } catch (e) {
-      setError("Не удалось удалить запись");
+    const removeResult = await deleteFoodEntry(id);
+    if (!removeResult.ok) {
+      setError(removeResult.error);
+      return;
     }
+
+    const updated = await getFoodEntriesForDate(date);
+    if (!updated.ok) {
+      setError(updated.error);
+      return;
+    }
+    setEntries(updated.data);
   }
 
   const totalProtein = entries.reduce(
