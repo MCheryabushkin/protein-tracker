@@ -13,6 +13,7 @@ type FoodEntry = {
 };
 
 const STORAGE_KEY = "protein-tracker:entries-by-date";
+const GOAL_STORAGE_KEY = "protein-tracker:daily-goal";
 
 type EntriesByDate = Record<string, FoodEntry[]>;
 
@@ -41,10 +42,22 @@ function writeEntriesByDate(value: EntriesByDate) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 }
 
+function readDailyGoal(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return window.localStorage.getItem(GOAL_STORAGE_KEY) ?? "";
+}
+
+function writeDailyGoal(value: string) {
+  window.localStorage.setItem(GOAL_STORAGE_KEY, value);
+}
+
 export default function FoodTracker() {
   const [date, setDate] = useState<string>(getTodayAsISODate);
   const [storageVersion, setStorageVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [dailyGoal, setDailyGoal] = useState<string>(readDailyGoal);
 
   const [name, setName] = useState("");
   const [protein, setProtein] = useState("");
@@ -106,6 +119,9 @@ export default function FoodTracker() {
     () => entries.reduce((sum, entry) => sum + entry.proteinGrams, 0),
     [entries]
   );
+  const dailyGoalValue = Number(dailyGoal.replace(",", "."));
+  const hasDailyGoal = dailyGoal.trim() !== "" && Number.isFinite(dailyGoalValue) && dailyGoalValue >= 0;
+  const goalDiff = hasDailyGoal ? Math.round((totalProtein - dailyGoalValue) * 10) / 10 : 0;
 
   return (
     <div className="flex w-full flex-col gap-8">
@@ -116,6 +132,24 @@ export default function FoodTracker() {
         <p className="text-sm text-muted-foreground">
           Выберите день, добавляйте блюда и их содержание белка.
         </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label className="text-sm font-medium text-foreground">
+            Ежедневная цель, г
+          </label>
+          <Input
+            type="number"
+            min={0}
+            step="1"
+            inputMode="decimal"
+            value={dailyGoal}
+            onChange={(e) => {
+              setDailyGoal(e.target.value);
+              writeDailyGoal(e.target.value);
+            }}
+            className="max-w-xs"
+            placeholder="Например, 130"
+          />
+        </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <label className="text-sm font-medium text-foreground">
             День
@@ -164,6 +198,12 @@ export default function FoodTracker() {
             <span className="font-medium text-foreground">
               {totalProtein} г белка
             </span>
+            {hasDailyGoal && (
+              <span className="ml-2">
+                ({goalDiff >= 0 ? "+" : ""}
+                {goalDiff} г к цели)
+              </span>
+            )}
           </div>
           <Button type="submit">Добавить блюдо</Button>
         </div>
