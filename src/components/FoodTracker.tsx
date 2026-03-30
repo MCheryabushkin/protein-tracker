@@ -1,67 +1,61 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useMemo, useState, FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  addFoodEntry,
-  deleteFoodEntry,
-  getFoodEntriesForDate,
-} from "@/app/actions";
 
 type FoodEntry = {
   id: number;
   date: string;
   name: string;
   proteinGrams: number;
-  createdAt: Date;
+  createdAt: string;
 };
+
+const STORAGE_KEY = "protein-tracker:entries-by-date";
+
+type EntriesByDate = Record<string, FoodEntry[]>;
 
 function getTodayAsISODate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function readEntriesByDate(): EntriesByDate {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw) as EntriesByDate;
+  } catch {
+    return {};
+  }
+}
+
+function writeEntriesByDate(value: EntriesByDate) {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+}
+
 export default function FoodTracker() {
   const [date, setDate] = useState<string>(getTodayAsISODate);
-  const [entries, setEntries] = useState<FoodEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [storageVersion, setStorageVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [protein, setProtein] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    let isCancelled = false;
+  const entries = useMemo(() => {
+    void storageVersion;
+    const byDate = readEntriesByDate();
+    return byDate[date] ?? [];
+  }, [date, storageVersion]);
 
-    async function load() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const result = await getFoodEntriesForDate(date);
-        if (!isCancelled) {
-          if (result.ok) {
-            setEntries(result.data);
-          } else {
-            setEntries([]);
-            setError(result.error);
-          }
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void load();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [date]);
-
-  async function handleSubmit(event: FormEvent) {
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
 
@@ -77,50 +71,40 @@ export default function FoodTracker() {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const addResult = await addFoodEntry(date, name, proteinNumber);
-      if (!addResult.ok) {
-        setError(addResult.error);
-        return;
-      }
+    const newEntry: FoodEntry = {
+      id: Date.now(),
+      date,
+      name: name.trim(),
+      proteinGrams: Math.round(proteinNumber),
+      createdAt: new Date().toISOString(),
+    };
 
-      const updated = await getFoodEntriesForDate(date);
-      if (!updated.ok) {
-        setError(updated.error);
-        return;
-      }
+    const byDate = readEntriesByDate();
+    const updated = [...(byDate[date] ?? []), newEntry];
+    byDate[date] = updated;
+    writeEntriesByDate(byDate);
 
-      setEntries(updated.data);
-      setName("");
-      setProtein("");
-    } finally {
-      setIsSubmitting(false);
-    }
+    setStorageVersion((value) => value + 1);
+    setName("");
+    setProtein("");
   }
 
-  async function handleDelete(id: number) {
+  function handleDelete(id: number) {
     const ok = window.confirm("Удалить запись из списка?");
     if (!ok) return;
 
-    setError(null);
-    const removeResult = await deleteFoodEntry(id);
-    if (!removeResult.ok) {
-      setError(removeResult.error);
-      return;
-    }
+    const byDate = readEntriesByDate();
+    const updated = (byDate[date] ?? []).filter((entry) => entry.id !== id);
+    byDate[date] = updated;
+    writeEntriesByDate(byDate);
 
-    const updated = await getFoodEntriesForDate(date);
-    if (!updated.ok) {
-      setError(updated.error);
-      return;
-    }
-    setEntries(updated.data);
+    setStorageVersion((value) => value + 1);
+    setError(null);
   }
 
-  const totalProtein = entries.reduce(
-    (sum, entry) => sum + entry.proteinGrams,
-    0
+  const totalProtein = useMemo(
+    () => entries.reduce((sum, entry) => sum + entry.proteinGrams, 0),
+    [entries]
   );
 
   return (
@@ -181,9 +165,7 @@ export default function FoodTracker() {
               {totalProtein} г белка
             </span>
           </div>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Сохранение..." : "Добавить блюдо"}
-          </Button>
+          <Button type="submit">Добавить блюдо</Button>
         </div>
         {error && (
           <p className="text-sm text-destructive" role="alert">
@@ -196,11 +178,7 @@ export default function FoodTracker() {
         <h2 className="text-lg font-semibold tracking-tight">
           Список блюд за день
         </h2>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">
-            Загрузка записей...
-          </p>
-        ) : entries.length === 0 ? (
+        {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             На этот день пока нет записей.
           </p>
